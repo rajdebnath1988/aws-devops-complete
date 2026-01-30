@@ -231,17 +231,22 @@ jobs:
         run: kubectl apply -f infra/monitoring/servicemonitor.yaml
 
       # Install Grafana
-      - name: Install Grafana
+      - name: Install Grafana  
         run: |
           helm upgrade --install grafana grafana/grafana \
             --namespace monitoring \
             --set adminPassword=admin123 \
             --set service.type=LoadBalancer
 
-      # Install CloudWatch Agent
-      - name: Install CloudWatch Agent
+      - name: Install AWS Container Insights
         run: |
-          kubectl apply -f https://raw.githubusercontent.com/aws-samples/amazon-cloudwatch-container-insights/latest/k8s-deployment-manifest.yaml
+          kubectl apply -f https://raw.githubusercontent.com/aws-samples/amazon-cloudwatch-container-insights/main/k8s-deployment-manifest.yaml
+
+      # Install AWS Container Insights (CloudWatch Logs + Metrics)
+      - name: Install AWS Container Insights
+        run: |
+          kubectl apply -f https://raw.githubusercontent.com/aws-samples/amazon-cloudwatch-container-insights/main/k8s-deployment-manifest.yaml    
+          
 
       # Verify Pods
       - name: Verify Monitoring Pods
