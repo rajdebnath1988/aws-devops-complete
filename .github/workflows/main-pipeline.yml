@@ -1,8 +1,8 @@
 name: DevSecOps Master Pipeline
 
-#on:
-  #push:
-    #branches: [ "main" ]
+on:
+  push:
+    branches: [ "main" ]
 
 env:
   AWS_REGION: us-east-1
