@@ -15,7 +15,8 @@ spec:
     spec:
       containers:
         - name: shop-ui
-          image: AWS_ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/shop-ui:IMAGE_TAG
+          # CORRECT PLACEHOLDER MATCHING THE PIPELINE
+          image: REPO_URI_PLACEHOLDER:IMAGE_TAG_PLACEHOLDER
           ports:
             - containerPort: 5000
           env:
