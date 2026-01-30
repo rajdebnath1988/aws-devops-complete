@@ -9,11 +9,11 @@ env:
   EKS_CLUSTER_NAME: my-devops-cluster
 
 permissions:
-  id-token: write      # For AWS OIDC
-  contents: read       # To read the repo
-  issues: write        # Allow ZAP to create issues
-  checks: write        # Allow ZAP to add check runs
-  actions: write       # Allow artifact uploads
+  id-token: write
+  contents: read
+  issues: write
+  checks: write
+  actions: write
 
 jobs:
   # ------------------------------------------------------------------
@@ -22,14 +22,15 @@ jobs:
   deploy-infra:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC Ready)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-      
+
       - name: Deploy ECR and SSM
         uses: aws-actions/aws-cloudformation-github-deploy@v1
         with:
@@ -46,19 +47,20 @@ jobs:
     strategy:
       matrix:
         service: [product-api, shop-ui]
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Snyk Security Scan
         uses: snyk/actions/python@master
-        continue-on-error: true 
+        continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           file: services/${{ matrix.service }}/requirements.txt
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -66,23 +68,27 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and Push Docker Image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
+          set -e
           cd services/${{ matrix.service }}
-          docker build -t $REGISTRY/${{ matrix.service }}:${{ github.sha }} .
-          docker push $REGISTRY/${{ matrix.service }}:${{ github.sha }}
+
+          IMAGE="$REGISTRY/${{ matrix.service }}:${{ github.sha }}"
+
+          docker build -t $IMAGE .
+          docker push $IMAGE
 
       - name: Run Trivy Vulnerability Scanner
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ matrix.service }}:${{ github.sha }}'
-          format: 'table'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: 0
 
   # ------------------------------------------------------------------
   # STAGE 3: Deploy to EKS
@@ -90,10 +96,12 @@ jobs:
   deploy-k8s:
     needs: build-and-secure
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -102,47 +110,43 @@ jobs:
       - name: Update KubeConfig
         run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
 
-      - name: Deploy Infrastructure Namespace
+      - name: Deploy Namespace
         run: kubectl apply -f infra/k8s/namespace.yaml
 
       - name: Deploy Microservices
         run: |
-          # Fetch Account ID safely
+          set -e
+
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
-          
-          # Replace Placeholders
+
           sed -i "s|REPO_URI_PLACEHOLDER|$ECR_REGISTRY/product-api|g" infra/k8s/product-api.yaml
           sed -i "s|REPO_URI_PLACEHOLDER|$ECR_REGISTRY/shop-ui|g" infra/k8s/shop-ui.yaml
           sed -i "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" infra/k8s/*.yaml
-          
-          # Apply Manifests
+
           kubectl apply -f infra/k8s/product-api.yaml
           kubectl apply -f infra/k8s/shop-ui.yaml
           kubectl apply -f infra/k8s/hpa.yaml
 
-      # -------------------------------------------------------------
-      # FORCE RESTART: Ensures new Python code (Security Headers) is loaded
-      # -------------------------------------------------------------
       - name: Force Rollout Restart
         run: |
           kubectl rollout restart deployment/shop-ui -n devops-demo
           kubectl rollout status deployment/shop-ui -n devops-demo
 
   # ------------------------------------------------------------------
-  # STAGE 4: DAST (Dynamic Security Testing)
+  # STAGE 4: DAST (OWASP ZAP)
   # ------------------------------------------------------------------
   dast-test:
     needs: deploy-k8s
     runs-on: ubuntu-latest
     env:
       TARGET_URL: "placeholder"
-    
+
     steps:
-      - uses: actions/checkout@v3 
-      
+      - uses: actions/checkout@v4
+
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -150,36 +154,36 @@ jobs:
 
       - name: Get LoadBalancer URL
         run: |
-           aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
-           echo "Waiting for LoadBalancer..."
-           sleep 20
-           LB_URL=$(kubectl get svc shop-ui-lb -n devops-demo -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-           echo "TARGET_URL=http://$LB_URL" >> $GITHUB_ENV
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+          echo "Waiting for LoadBalancer..."
+          sleep 25
 
-      # -------------------------------------------------------------
-      # PERMISSION FIX: Required for ZAP to write the report file
-      # -------------------------------------------------------------
+          LB_URL=$(kubectl get svc shop-ui-lb -n devops-demo -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          echo "TARGET_URL=http://$LB_URL" >> $GITHUB_ENV
+
       - name: Fix File Permissions
         run: chmod -R 777 .
 
       # -------------------------------------------------------------
-      # ZAP SCAN: NO 'artifact_name' param (Prevents 400 Crash)
+      # ZAP BASELINE SCAN — SAFE MODE (NO ARTIFACT BUG)
       # -------------------------------------------------------------
       - name: OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.12.0
+        uses: zaproxy/action-baseline@v0.14.0
         with:
           target: ${{ env.TARGET_URL }}
-          cmd_options: '-a'
-          # CRITICAL: Do NOT define artifact_name here.
+          cmd_options: "-a"
           fail_action: false
           allow_issue_writing: false
 
       # -------------------------------------------------------------
-      # MANUAL UPLOAD: This works 100% of the time
+      # MANUAL ARTIFACT UPLOAD — STABLE
       # -------------------------------------------------------------
       - name: Upload ZAP Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: zap-scan-results
-          path: report_html.html
+          path: |
+            report_json.json
+            report_md.md
+            report_html.html
