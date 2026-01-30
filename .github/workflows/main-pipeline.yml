@@ -241,7 +241,7 @@ jobs:
       # Install CloudWatch Agent
       - name: Install CloudWatch Agent
         run: |
-          kubectl apply -f https://amazon-eks.s3.amazonaws.com/cloudwatch-agent/cloudwatch-agent.yaml
+          kubectl apply -f https://raw.githubusercontent.com/aws-samples/amazon-cloudwatch-container-insights/latest/k8s-deployment-manifest.yaml
 
       # Verify Pods
       - name: Verify Monitoring Pods
