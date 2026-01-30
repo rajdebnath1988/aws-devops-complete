@@ -226,6 +226,10 @@ jobs:
             --namespace monitoring \
             --create-namespace
 
+      # Apply ServiceMonitor
+      - name: Apply Prometheus Service Monitor
+        run: kubectl apply -f infra/monitoring/servicemonitor.yaml
+
       # Install Grafana
       - name: Install Grafana
         run: |
