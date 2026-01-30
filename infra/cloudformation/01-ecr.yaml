@@ -1,0 +1,15 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECR Repositories for Microservices
+Resources:
+  ProductRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: "product-api"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+  ShopRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: "shop-ui"
+      ImageScanningConfiguration:
+        ScanOnPush: true
