@@ -49,7 +49,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      # SAST Scan
       - name: Snyk Security Scan
         uses: snyk/actions/python@master
         continue-on-error: true 
@@ -58,7 +57,6 @@ jobs:
         with:
           file: services/${{ matrix.service }}/requirements.txt
 
-      # Login to AWS
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -70,7 +68,6 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      # Build & Push
       - name: Build and Push Docker Image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -79,7 +76,6 @@ jobs:
           docker build -t $REGISTRY/${{ matrix.service }}:${{ github.sha }} .
           docker push $REGISTRY/${{ matrix.service }}:${{ github.sha }}
 
-      # Container Scan
       - name: Run Trivy Vulnerability Scanner
         uses: aquasecurity/trivy-action@master
         with:
@@ -111,22 +107,21 @@ jobs:
 
       - name: Deploy Microservices
         run: |
-          # 1. Fetch Account ID safely
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
           
-          # 2. Update Manifests with correct ID and SHA
+          # Replace Placeholders
           sed -i "s|REPO_URI_PLACEHOLDER|$ECR_REGISTRY/product-api|g" infra/k8s/product-api.yaml
           sed -i "s|REPO_URI_PLACEHOLDER|$ECR_REGISTRY/shop-ui|g" infra/k8s/shop-ui.yaml
           sed -i "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" infra/k8s/*.yaml
           
-          # 3. Apply Manifests
+          # Apply Manifests
           kubectl apply -f infra/k8s/product-api.yaml
           kubectl apply -f infra/k8s/shop-ui.yaml
           kubectl apply -f infra/k8s/hpa.yaml
 
       # -------------------------------------------------------------
-      # FORCE RESTART: Ensures new Python code (Security Headers) is loaded
+      # FORCE RESTART: Essential to fix "Stale Code" security warnings
       # -------------------------------------------------------------
       - name: Force Rollout Restart
         run: |
@@ -143,6 +138,8 @@ jobs:
       TARGET_URL: "placeholder"
     
     steps:
+      - uses: actions/checkout@v3 # Required to set permissions on current dir
+      
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -156,33 +153,22 @@ jobs:
            echo "Waiting for LoadBalancer..."
            sleep 20
            LB_URL=$(kubectl get svc shop-ui-lb -n devops-demo -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-           echo "LoadBalancer is at: $LB_URL"
            echo "TARGET_URL=http://$LB_URL" >> $GITHUB_ENV
 
       # -------------------------------------------------------------
-      # CRITICAL FIX: Grant Permissions for ZAP Container
+      # FIX: Grant Permissions so ZAP can write its report file
       # -------------------------------------------------------------
-      - name: Fix ZAP Permissions
-        run: chmod -R 777 .     
+      - name: Fix File Permissions
+        run: chmod -R 777 .
 
       # -------------------------------------------------------------
-      # ZAP SCAN (Configured NOT to upload internally)
+      # ZAP SCAN (Updated Configuration)
       # -------------------------------------------------------------
       - name: OWASP ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.12.0
         with:
           target: ${{ env.TARGET_URL }}
           cmd_options: '-a'
-          # We REMOVED 'artifact_name' here to prevent the crash
+          artifact_name: 'zap-report' # HYPHEN ONLY - NO UNDERSCORES
           fail_action: false
           allow_issue_writing: false
-
-      # -------------------------------------------------------------
-      # MANUAL UPLOAD (The Reliable Way)
-      # -------------------------------------------------------------
-      - name: Upload ZAP Report
-        if: always() # Run even if ZAP finds issues
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-security-report
-          path: report_html.html
