@@ -1,21 +1,40 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, make_response
 import requests
 import os
 
 app = Flask(__name__)
 
-# Service Discovery via Env Var (Injected by K8s)
 API_URL = os.getenv("PRODUCT_API_URL", "http://localhost:8000")
+
+# -------------------------------------------------------------
+# SECURITY MIDDLEWARE (Fixes ZAP Warnings)
+# -------------------------------------------------------------
+@app.after_request
+def add_security_headers(response):
+    # Prevent Clickjacking
+    response.headers['X-Frame-Options'] = 'DENY'
+    
+    # Prevent MIME-Sniffing
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    
+    # Basic Content Security Policy (Adjust 'self' as needed)
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+    
+    # Hide Server Info (Optional, but good practice)
+    response.headers['Server'] = 'DevOps-Server'
+    
+    # Enforce Permissions Policy
+    response.headers['Permissions-Policy'] = "geolocation=(), microphone=(), camera=()"
+    
+    return response
 
 @app.route("/")
 def home():
     try:
-        # Call the Microservice
         response = requests.get(f"{API_URL}/products", timeout=2)
         products = response.json()
     except Exception as e:
         products = []
-        error = str(e)
     return render_template("index.html", products=products)
 
 @app.route("/health")
