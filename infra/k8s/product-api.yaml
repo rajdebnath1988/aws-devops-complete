@@ -13,10 +13,11 @@ spec:
       labels:
         app: product-api
     spec:
-      serviceAccountName: default # Ensure this SA has IAM permissions for SSM
+      serviceAccountName: default
       containers:
         - name: product-api
-          image: AWS_ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/product-api:IMAGE_TAG
+          # CORRECT PLACEHOLDER MATCHING THE PIPELINE
+          image: REPO_URI_PLACEHOLDER:IMAGE_TAG_PLACEHOLDER
           ports:
             - containerPort: 8000
 ---
