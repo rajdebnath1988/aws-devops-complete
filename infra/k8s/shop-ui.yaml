@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shop-ui
+  namespace: devops-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: shop-ui
+  template:
+    metadata:
+      labels:
+        app: shop-ui
+    spec:
+      containers:
+        - name: shop-ui
+          image: AWS_ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/shop-ui:IMAGE_TAG
+          ports:
+            - containerPort: 5000
+          env:
+            - name: PRODUCT_API_URL
+              value: "http://product-api-svc.devops-demo.svc.cluster.local"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shop-ui-lb
+  namespace: devops-demo
+spec:
+  type: LoadBalancer
+  selector:
+    app: shop-ui
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5000
