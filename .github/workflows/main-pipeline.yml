@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   # ------------------------------------------------------------------
-  # STAGE 1: Infrastructure (Check & Deploy CloudFormation)
+  # STAGE 1: Infrastructure
   # ------------------------------------------------------------------
   deploy-infra:
     runs-on: ubuntu-latest
@@ -37,7 +37,7 @@ jobs:
           no-fail-on-empty-changeset: "1"
 
   # ------------------------------------------------------------------
-  # STAGE 2: Build & Security Scan (Parallel for both services)
+  # STAGE 2: Build & Security Scan
   # ------------------------------------------------------------------
   build-and-secure:
     needs: deploy-infra
@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      # 1. SAST (Static Code Analysis) - Snyk
+      # SAST Scan
       - name: Snyk Security Scan
         uses: snyk/actions/python@master
         continue-on-error: true 
@@ -57,7 +57,7 @@ jobs:
         with:
           file: services/${{ matrix.service }}/requirements.txt
 
-      # 2. Login to AWS
+      # Login to AWS
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -69,15 +69,16 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      # 3. Build Docker Image
-      - name: Build and Tag
+      # Build & Push
+      - name: Build and Push Docker Image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           cd services/${{ matrix.service }}
           docker build -t $REGISTRY/${{ matrix.service }}:${{ github.sha }} .
+          docker push $REGISTRY/${{ matrix.service }}:${{ github.sha }}
 
-      # 4. Container Security Scanning - Trivy
+      # Container Scan
       - name: Run Trivy Vulnerability Scanner
         uses: aquasecurity/trivy-action@master
         with:
@@ -85,13 +86,6 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-
-      # 5. Push Image
-      - name: Push to ECR
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          docker push $REGISTRY/${{ matrix.service }}:${{ github.sha }}
 
   # ------------------------------------------------------------------
   # STAGE 3: Deploy to EKS
@@ -114,39 +108,36 @@ jobs:
       - name: Deploy Infrastructure Namespace
         run: kubectl apply -f infra/k8s/namespace.yaml
 
-      # -------------------------------------------------------------
-      # FIXED: Dynamically fetch Account ID to prevent "InvalidImageName"
-      # -------------------------------------------------------------
-      - name: Deploy Microservices and HPA
+      - name: Deploy Microservices
         run: |
-          # 1. Fetch Account ID safely (Prevents crash if Secret is missing)
+          # 1. Fetch Account ID safely
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
           
-          echo "Deploying with Registry: $ECR_REGISTRY"
-
-          # 2. Replace URI Placeholders (Standardizes the format)
+          # 2. Update Manifests
           sed -i "s|REPO_URI_PLACEHOLDER|$ECR_REGISTRY/product-api|g" infra/k8s/product-api.yaml
           sed -i "s|REPO_URI_PLACEHOLDER|$ECR_REGISTRY/shop-ui|g" infra/k8s/shop-ui.yaml
-          
-          # 3. Replace Image Tags
           sed -i "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" infra/k8s/*.yaml
           
-          # 4. Apply Manifests
+          # 3. Apply Manifests
           kubectl apply -f infra/k8s/product-api.yaml
           kubectl apply -f infra/k8s/shop-ui.yaml
           kubectl apply -f infra/k8s/hpa.yaml
 
-      - name: Wait for Rollout
-        run: kubectl rollout status deployment/shop-ui -n devops-demo
+      # -------------------------------------------------------------
+      # CRITICAL FIX: Force Restart to ensure new code is running
+      # -------------------------------------------------------------
+      - name: Force Rollout Restart
+        run: |
+          kubectl rollout restart deployment/shop-ui -n devops-demo
+          kubectl rollout status deployment/shop-ui -n devops-demo
 
   # ------------------------------------------------------------------
-  # STAGE 4: DAST (Dynamic Security Testing) - OWASP ZAP
+  # STAGE 4: DAST (Dynamic Security Testing)
   # ------------------------------------------------------------------
   dast-test:
     needs: deploy-k8s
     runs-on: ubuntu-latest
-    # Define placeholder to silence editor warning
     env:
       TARGET_URL: "placeholder"
     
@@ -163,24 +154,20 @@ jobs:
            aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
            
            echo "Waiting for LoadBalancer..."
-           sleep 15
+           sleep 20 # Wait for restart to complete
            LB_URL=$(kubectl get svc shop-ui-lb -n devops-demo -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
            
            echo "LoadBalancer is at: $LB_URL"
            echo "TARGET_URL=http://$LB_URL" >> $GITHUB_ENV
 
+      # -------------------------------------------------------------
+      # UPDATED: Use Newer Action Version (v0.12.0)
+      # -------------------------------------------------------------
       - name: OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.9.0
+        uses: zaproxy/action-baseline@v0.12.0
         with:
           target: ${{ env.TARGET_URL }}
-          
-          # FIXED: Removed 'rules_file_name' (it was pointing to a non-existent file)
           cmd_options: '-a'
-          
-          # FIXED: Added artifact_name to prevent "zap_scan" underscore error
-          artifact_name: 'zap-scan-report'
-          
-          # Set to false to ensure you get the report even if warnings exist
+          artifact_name: 'zapresults' # Simple name
           fail_action: false
-          
           allow_issue_writing: false
