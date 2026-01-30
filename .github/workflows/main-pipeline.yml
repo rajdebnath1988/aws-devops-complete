@@ -9,8 +9,10 @@ env:
   EKS_CLUSTER_NAME: my-devops-cluster
 
 permissions:
-  id-token: write
-  contents: read
+  id-token: write      # For AWS OIDC
+  contents: read       # To read the repo
+  issues: write        # <--- ADD THIS: Allow ZAP to create issues
+  checks: write        # <--- ADD THIS: Allow ZAP to add check runs
 
 jobs:
   # ------------------------------------------------------------------
@@ -173,3 +175,5 @@ jobs:
           target: ${{ env.TARGET_URL }}
           rules_file_name: '.zap/rules.tsv' 
           cmd_options: '-a'
+          fail_action: true  # <--- Change to true to enforce security
+          allow_issue_writing: false # Set to false if you don't want GitHub Issues created
