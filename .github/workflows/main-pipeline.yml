@@ -107,6 +107,7 @@ jobs:
 
       - name: Deploy Microservices
         run: |
+          # Fetch Account ID safely
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
           
@@ -121,7 +122,7 @@ jobs:
           kubectl apply -f infra/k8s/hpa.yaml
 
       # -------------------------------------------------------------
-      # FORCE RESTART: Essential to fix "Stale Code" security warnings
+      # FORCE RESTART: Essential for Security Updates
       # -------------------------------------------------------------
       - name: Force Rollout Restart
         run: |
@@ -138,7 +139,7 @@ jobs:
       TARGET_URL: "placeholder"
     
     steps:
-      - uses: actions/checkout@v3 # Required to set permissions on current dir
+      - uses: actions/checkout@v3 
       
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -156,19 +157,29 @@ jobs:
            echo "TARGET_URL=http://$LB_URL" >> $GITHUB_ENV
 
       # -------------------------------------------------------------
-      # FIX: Grant Permissions so ZAP can write its report file
+      # PERMISSION FIX: Required for ZAP to write the report file
       # -------------------------------------------------------------
       - name: Fix File Permissions
         run: chmod -R 777 .
 
       # -------------------------------------------------------------
-      # ZAP SCAN (Updated Configuration)
+      # ZAP SCAN: Note that 'artifact_name' is REMOVED
       # -------------------------------------------------------------
       - name: OWASP ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.12.0
         with:
           target: ${{ env.TARGET_URL }}
           cmd_options: '-a'
-          artifact_name: 'zap-report' # HYPHEN ONLY - NO UNDERSCORES
+          # DO NOT ADD artifact_name HERE. IT CAUSES THE CRASH.
           fail_action: false
           allow_issue_writing: false
+
+      # -------------------------------------------------------------
+      # MANUAL UPLOAD: This works 100% of the time
+      # -------------------------------------------------------------
+      - name: Upload ZAP Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-security-report
+          path: report_html.html
