@@ -183,7 +183,7 @@ jobs:
             report_json.json
             report_md.md
             report_html.html
-
+            
   # ------------------------------------------------------------------
   # STAGE 5: Monitoring (Prometheus + Grafana + CloudWatch)
   # ------------------------------------------------------------------
@@ -226,28 +226,34 @@ jobs:
             --namespace monitoring \
             --create-namespace
 
-      # Apply ServiceMonitor
-      - name: Apply Prometheus Service Monitor
-        run: kubectl apply -f infra/monitoring/servicemonitor.yaml
-
       # Install Grafana
-      - name: Install Grafana  
+      - name: Install Grafana
         run: |
           helm upgrade --install grafana grafana/grafana \
             --namespace monitoring \
             --set adminPassword=admin123 \
             --set service.type=LoadBalancer
 
-      - name: Install AWS Container Insights
+      # ------------------------------------------------------------------
+      # FIXED: CloudWatch Agent Installation
+      # 1. Use valid 'latest' URL (Old one is 404)
+      # 2. Configure Cluster Name & Region (Required for agent to start)
+      # ------------------------------------------------------------------
+      - name: Install CloudWatch Container Insights
         run: |
-          kubectl apply -f https://raw.githubusercontent.com/aws-samples/amazon-cloudwatch-container-insights/main/k8s-deployment-manifest.yaml
+          # 1. Download the official QuickStart manifest
+          curl -O https://raw.githubusercontent.com/aws-samples/amazon-cloudwatch-container-insights/latest/k8s-deployment-manifest-templates/deployment-mode/daemonset/container-insights-monitoring/quickstart/cwagent-fluent-bit-quickstart.yaml
 
-      # Install AWS Container Insights (CloudWatch Logs + Metrics)
-      - name: Install AWS Container Insights
-        run: |
-          kubectl apply -f https://raw.githubusercontent.com/aws-samples/amazon-cloudwatch-container-insights/main/k8s-deployment-manifest.yaml    
-          
+          # 2. Replace Placeholders with your Env Vars
+          sed -i "s|{{cluster_name}}|${{ env.EKS_CLUSTER_NAME }}|g" cwagent-fluent-bit-quickstart.yaml
+          sed -i "s|{{region_name}}|${{ env.AWS_REGION }}|g" cwagent-fluent-bit-quickstart.yaml
+
+          # 3. Apply the modified file
+          kubectl apply -f cwagent-fluent-bit-quickstart.yaml
 
       # Verify Pods
       - name: Verify Monitoring Pods
         run: kubectl get pods -n monitoring
+        
+      - name: Verify CloudWatch Pods
+        run: kubectl get pods -n amazon-cloudwatch
