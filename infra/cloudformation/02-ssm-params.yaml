@@ -1,0 +1,8 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  DemoParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: "/devops-demo/environment"
+      Type: String
+      Value: "production-ready"
