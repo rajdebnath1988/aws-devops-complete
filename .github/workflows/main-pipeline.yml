@@ -160,6 +160,12 @@ jobs:
            echo "TARGET_URL=http://$LB_URL" >> $GITHUB_ENV
 
       # -------------------------------------------------------------
+      # CRITICAL FIX: Grant Permissions for ZAP Container
+      # -------------------------------------------------------------
+      - name: Fix ZAP Permissions
+        run: chmod -R 777 .     
+
+      # -------------------------------------------------------------
       # ZAP SCAN (Configured NOT to upload internally)
       # -------------------------------------------------------------
       - name: OWASP ZAP Baseline Scan
