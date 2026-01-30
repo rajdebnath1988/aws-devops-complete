@@ -16,20 +16,48 @@ spec:
       serviceAccountName: default
       containers:
         - name: product-api
-          # CORRECT PLACEHOLDER MATCHING THE PIPELINE
           image: REPO_URI_PLACEHOLDER:IMAGE_TAG_PLACEHOLDER
           ports:
-            - containerPort: 8000
+            - name: http
+              containerPort: 3000
+
+          # Health Probes (Optional but Recommended)
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+
+          # Resource Limits (Recommended)
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: product-api-svc
   namespace: devops-demo
+  labels:
+    app: product-api
 spec:
   selector:
     app: product-api
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: 80
-      targetPort: 8000
+      targetPort: 3000
