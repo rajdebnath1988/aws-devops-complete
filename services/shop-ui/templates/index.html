@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head><title>DevOps Shop</title></head>
+<body style="font-family: sans-serif; padding: 20px;">
+    <h1>🛒 DevOps Microservices Store</h1>
+    <hr>
+    {% for p in products %}
+    <div style="border:1px solid #ddd; padding:10px; margin:5px; border-radius:5px;">
+        <h3>{{ p.name }}</h3>
+        <p>Price: ${{ p.price }}</p>
+        <small>Source: {{ p.env }}</small>
+    </div>
+    {% endfor %}
+</body>
+</html>
