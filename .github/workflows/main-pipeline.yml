@@ -76,9 +76,7 @@ jobs:
         run: |
           set -e
           cd services/${{ matrix.service }}
-
           IMAGE="$REGISTRY/${{ matrix.service }}:${{ github.sha }}"
-
           docker build -t $IMAGE .
           docker push $IMAGE
 
@@ -116,14 +114,13 @@ jobs:
       - name: Deploy Microservices
         run: |
           set -e
-
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
-
+          
           sed -i "s|REPO_URI_PLACEHOLDER|$ECR_REGISTRY/product-api|g" infra/k8s/product-api.yaml
           sed -i "s|REPO_URI_PLACEHOLDER|$ECR_REGISTRY/shop-ui|g" infra/k8s/shop-ui.yaml
           sed -i "s|IMAGE_TAG_PLACEHOLDER|${{ github.sha }}|g" infra/k8s/*.yaml
-
+          
           kubectl apply -f infra/k8s/product-api.yaml
           kubectl apply -f infra/k8s/shop-ui.yaml
           kubectl apply -f infra/k8s/hpa.yaml
@@ -157,7 +154,6 @@ jobs:
           aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
           echo "Waiting for LoadBalancer..."
           sleep 25
-
           LB_URL=$(kubectl get svc shop-ui-lb -n devops-demo -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
           echo "TARGET_URL=http://$LB_URL" >> $GITHUB_ENV
 
@@ -187,3 +183,62 @@ jobs:
             report_json.json
             report_md.md
             report_html.html
+
+  # ------------------------------------------------------------------
+  # STAGE 5: Monitoring (Prometheus + Grafana + CloudWatch)
+  # ------------------------------------------------------------------
+  monitoring-stack:
+    needs: deploy-k8s
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      # AWS Auth
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Connect to EKS
+      - name: Configure kubeconfig
+        run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+      # Install Helm
+      - name: Install Helm
+        run: |
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      # Add Helm repos
+      - name: Add Helm Repositories
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm repo update
+
+      # Install Prometheus Stack
+      - name: Install Prometheus (kube-prometheus-stack)
+        run: |
+          helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+            --namespace monitoring \
+            --create-namespace
+
+      # Install Grafana
+      - name: Install Grafana
+        run: |
+          helm upgrade --install grafana grafana/grafana \
+            --namespace monitoring \
+            --set adminPassword=admin123 \
+            --set service.type=LoadBalancer
+
+      # Install CloudWatch Agent
+      - name: Install CloudWatch Agent
+        run: |
+          kubectl apply -f https://amazon-eks.s3.amazonaws.com/cloudwatch-agent/cloudwatch-agent.yaml
+
+      # Verify Pods
+      - name: Verify Monitoring Pods
+        run: kubectl get pods -n monitoring
