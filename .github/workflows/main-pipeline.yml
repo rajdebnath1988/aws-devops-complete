@@ -173,7 +173,7 @@ jobs:
         uses: zaproxy/action-baseline@v0.9.0
         with:
           target: ${{ env.TARGET_URL }}
-          rules_file_name: '.zap/rules.tsv' 
+          rules_file_name: 'zap-scan-report' 
           cmd_options: '-a'
           fail_action: true  # <--- Change to true to enforce security
           allow_issue_writing: false # Set to false if you don't want GitHub Issues created
